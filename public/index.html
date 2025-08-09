@@ -29,6 +29,7 @@
           <li class="nav-item"><button id="dashboardBtn" class="nav-link btn btn-link text-white">Dashboard</button></li>
           <li class="nav-item"><button id="carsBtn" class="nav-link btn btn-link text-white">Cars</button></li>
           <li class="nav-item"><button id="driversBtn" class="nav-link btn btn-link text-white">Drivers</button></li>
+          <li class="nav-item"><button id="assignmentsBtn" class="nav-link btn btn-link text-white">Assignments</button></li>
         </ul>
         <button id="logoutBtn" class="btn btn-outline-light ms-2">Logout</button>
       </div>
@@ -142,6 +143,56 @@
         </table>
       </div>
     </section>
+
+    <!-- Assignments -->
+    <section id="assignmentsSection" style="display:none;">
+      <h2>Assignments</h2>
+      <form id="assignmentForm" class="admin-only row g-2 align-items-end mb-3">
+        <div class="col-sm-4">
+          <select id="assignCar" class="form-select" required>
+            <option value="">Select Car</option>
+          </select>
+        </div>
+        <div class="col-sm-4">
+          <select id="assignDriver" class="form-select" required>
+            <option value="">Select Driver</option>
+          </select>
+        </div>
+        <div class="col-sm-3">
+          <input type="datetime-local" id="assignDate" class="form-control" placeholder="Assignment Date">
+        </div>
+        <div class="col-sm-1 d-grid">
+          <button type="submit" class="btn btn-primary">Assign</button>
+        </div>
+      </form>
+      <div class="table-responsive shadow rounded">
+        <table class="table table-striped align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Car</th>
+              <th>Driver</th>
+              <th>Assigned At</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="assignmentsTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- History Modal -->
+    <div class="modal fade" id="historyModal" tabindex="-1" aria-labelledby="historyModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="historyModalLabel"></h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body" id="historyModalBody">
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
