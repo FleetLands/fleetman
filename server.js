@@ -52,11 +52,11 @@ app.post("/api/cars", auth("admin"), async (req, res) => {
     "INSERT INTO cars (license_plate, model, is_active, created_at) VALUES ($1, $2, TRUE, NOW())",
     [license_plate, model]
   );
-  res.sendStatus(201);
+  res.status(201).json({});
 });
 app.delete("/api/cars/:id", auth("admin"), async (req, res) => {
   await pool.query("UPDATE cars SET is_active = FALSE WHERE id = $1", [req.params.id]);
-  res.sendStatus(204);
+  res.status(200).json({});
 });
 
 // --- DRIVERS ---
@@ -70,11 +70,11 @@ app.post("/api/drivers", auth("admin"), async (req, res) => {
     "INSERT INTO drivers (name, is_active, created_at) VALUES ($1, TRUE, NOW())",
     [name]
   );
-  res.sendStatus(201);
+  res.status(201).json({});
 });
 app.delete("/api/drivers/:id", auth("admin"), async (req, res) => {
   await pool.query("UPDATE drivers SET is_active = FALSE WHERE id = $1", [req.params.id]);
-  res.sendStatus(204);
+  res.status(200).json({});
 });
 
 // --- STATS ---
@@ -113,12 +113,12 @@ app.post("/api/assignments", auth("admin"), async (req, res) => {
     "INSERT INTO assignments (car_id, driver_id, assigned_by, assigned_at) VALUES ($1, $2, $3, $4)",
     [car_id, driver_id, req.user.id, assigned_at || new Date()]
   );
-  res.sendStatus(201);
+  res.status(201).json({});
 });
 
 app.patch("/api/assignments/:id/unassign", auth("admin"), async (req, res) => {
   await pool.query("UPDATE assignments SET unassigned_at = NOW(), unassigned_by = $1 WHERE id = $2 AND unassigned_at IS NULL", [req.user.id, req.params.id]);
-  res.sendStatus(200);
+  res.status(200).json({});
 });
 
 // --- HISTORY ENDPOINTS ---
