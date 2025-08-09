@@ -301,10 +301,7 @@ async function loadAssignments() {
   }
 }
 async function loadAssignmentForm() {
-  if (role !== "admin") {
-    $("#assignmentForm").style.display = "none";
-    return;
-  }
+  // Show assignment form for all authenticated users
   $("#assignmentForm").style.display = "";
   const [cars, drivers] = await Promise.all([
     api("/api/cars"), api("/api/drivers")
