@@ -91,4 +91,57 @@ app.get("/api/stats", auth(), async (req, res) => {
   });
 });
 
+// --- ASSIGNMENTS ---
+app.get("/api/assignments", auth(), async (req, res) => {
+  // All active assignments (unassigned_at IS NULL)
+  const data = await pool.query(`
+    SELECT a.*, c.license_plate, d.name AS driver_name
+    FROM assignments a
+    LEFT JOIN cars c ON a.car_id = c.id
+    LEFT JOIN drivers d ON a.driver_id = d.id
+    WHERE a.unassigned_at IS NULL
+    ORDER BY a.assigned_at DESC
+  `);
+  res.json(data.rows);
+});
+
+app.post("/api/assignments", auth("admin"), async (req, res) => {
+  const { car_id, driver_id, assigned_at } = req.body;
+  // Unassign any active assignment for this car or driver before assigning
+  await pool.query("UPDATE assignments SET unassigned_at = NOW(), unassigned_by = $1 WHERE (car_id = $2 OR driver_id = $3) AND unassigned_at IS NULL", [req.user.id, car_id, driver_id]);
+  await pool.query(
+    "INSERT INTO assignments (car_id, driver_id, assigned_by, assigned_at) VALUES ($1, $2, $3, $4)",
+    [car_id, driver_id, req.user.id, assigned_at || new Date()]
+  );
+  res.sendStatus(201);
+});
+
+app.patch("/api/assignments/:id/unassign", auth("admin"), async (req, res) => {
+  await pool.query("UPDATE assignments SET unassigned_at = NOW(), unassigned_by = $1 WHERE id = $2 AND unassigned_at IS NULL", [req.user.id, req.params.id]);
+  res.sendStatus(200);
+});
+
+// --- HISTORY ENDPOINTS ---
+app.get("/api/assignments/history/car/:car_id", auth(), async (req, res) => {
+  const data = await pool.query(`
+    SELECT a.*, d.name AS driver_name
+    FROM assignments a
+    LEFT JOIN drivers d ON a.driver_id = d.id
+    WHERE a.car_id = $1
+    ORDER BY a.assigned_at DESC
+  `, [req.params.car_id]);
+  res.json(data.rows);
+});
+
+app.get("/api/assignments/history/driver/:driver_id", auth(), async (req, res) => {
+  const data = await pool.query(`
+    SELECT a.*, c.license_plate
+    FROM assignments a
+    LEFT JOIN cars c ON a.car_id = c.id
+    WHERE a.driver_id = $1
+    ORDER BY a.assigned_at DESC
+  `, [req.params.driver_id]);
+  res.json(data.rows);
+});
+
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
