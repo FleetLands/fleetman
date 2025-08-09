@@ -2,12 +2,136 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>Fleet Management App</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FleetDashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #f4f7fa; color: #333; display: block; min-height: 100vh; }
+    
+    /* Navigation */
+    nav { width: 100%; background: #004aad; color: white; display: flex; flex-direction: row; padding: 0.5rem 1rem; }
+    nav button { background: none; border: none; color: white; padding: 0.5rem 1rem; text-align: left; font-size: 1rem; cursor: pointer; border-bottom: 3px solid transparent; }
+    nav button.active, nav button:hover { background: #0056d2; border-bottom-color: #fff; }
+    
+    /* Main Content */
+    main { padding: 1rem; width: 100%; max-width: 1200px; margin: 0 auto; }
+    h2 { color: #004aad; margin-bottom: 1rem; }
+    
+    /* Stats (Enhanced) */
+    .stats { 
+      display: flex; 
+      gap: 1.5rem; 
+      margin-bottom: 2rem; 
+      flex-wrap: wrap; 
+      justify-content: flex-start;
+    }
+    .stat { 
+      background: white; 
+      padding: 2rem 1.5rem; 
+      flex: 1 1 230px; 
+      min-width: 230px;
+      text-align: left; 
+      border-radius: 16px; 
+      box-shadow: 0 4px 16px rgba(0,0,0,0.09); 
+      transition: box-shadow 0.2s, transform 0.2s;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 0.5rem;
+    }
+    .stat:hover {
+      box-shadow: 0 8px 32px rgba(0,0,0,0.13);
+      transform: translateY(-4px) scale(1.03);
+      z-index: 1;
+    }
+    .stat.stat-cars {
+      background: linear-gradient(120deg, #1976d2 0%, #4fc3f7 100%);
+      color: #fff;
+    }
+    .stat.stat-drivers {
+      background: linear-gradient(120deg, #388e3c 0%, #81c784 100%);
+      color: #fff;
+    }
+    .stat.stat-assignments {
+      background: linear-gradient(120deg, #ff9800 0%, #ffe082 100%);
+      color: #fff;
+    }
+    .stat h3 { font-size: 1.2rem; opacity: 0.9; font-weight: 400; margin-bottom: 0.7rem; }
+    .stat p { font-size: 2.6rem; font-weight: bold; line-height: 1; }
+    @media (max-width: 700px) {
+      .stats { flex-direction: column; gap: 1rem; }
+      .stat { min-width: 0; width: 100%; }
+    }
+
+    /* Forms */
+    form { background: white; padding: 1rem; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+    form input, form select { padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; flex: 1 1 180px; }
+    form button { background: #004aad; color: white; border: none; padding: 0.6rem 1rem; border-radius: 4px; cursor: pointer; }
+    
+    /* Search */
+    .search-input { width: 100%; max-width: 400px; padding: 0.5rem; margin-bottom: 1rem; border: 1px solid #ccc; border-radius: 4px; }
+    
+    /* Tables */
+    .table-container { overflow-x: auto; background: white; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { background: #004aad; color: white; font-weight: bold; }
+    tr:hover { background: #f9f9f9; }
+    
+    /* Buttons */
+    button.delete-btn { background: #dc3545; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; margin-right: 5px; }
+    button.end-btn { background: #ff9800; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; margin-right: 5px; }
+    button.history-btn { background: #004aad; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; }
+    
+    /* Auth */
+    .auth-container { display: flex; justify-content: center; align-items: center; height: 100vh; }
+    .auth-box { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+    .auth-box h2 { text-align: center; margin-bottom: 1.5rem; }
+    .auth-box input { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #ccc; border-radius: 4px; }
+    .auth-box button { width: 100%; padding: 0.75rem; background: #004aad; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    .auth-box .switch-auth { text-align: center; margin-top: 1rem; color: #666; }
+    .auth-box .switch-auth a { color: #004aad; cursor: pointer; }
+    
+    /* User Info */
+    .user-info { position: absolute; top: 10px; right: 10px; background: #004aad; color: white; padding: 0.5rem 1rem; border-radius: 4px; display: flex; align-items: center; gap: 0.5rem; }
+    .user-info .logout { cursor: pointer; text-decoration: underline; }
+    
+    /* Admin Controls */
+    .admin-only { display: none; }
+    .admin-visible .admin-only { display: block; }
+    .admin-visible .admin-only-inline { display: inline; }
+    
+    /* Modal */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); align-items: center; justify-content: center; z-index: 1000; }
+    .modal-content { background: white; padding: 1rem; border-radius: 8px; max-width: 500px; width: 90%; max-height: 80%; overflow-y: auto; }
+    .modal-content h3 { margin-bottom: 1rem; }
+    .close-btn { float: right; cursor: pointer; color: #333; font-weight: bold; }
+  </style>
 </head>
 <body>
-  <div id="app"></div>
-  <script src="app.js"></script>
+  <!-- ... everything else is the same ... -->
+
+  <main>
+    <!-- Dashboard -->
+    <section id="dashboardSection">
+      <h2>Dashboard</h2>
+      <div class="stats">
+        <div class="stat stat-cars">
+          <h3>Total Cars</h3>
+          <p id="totalCars">0</p>
+        </div>
+        <div class="stat stat-drivers">
+          <h3>Total Drivers</h3>
+          <p id="totalDrivers">0</p>
+        </div>
+        <div class="stat stat-assignments">
+          <h3>Active Assignments</h3>
+          <p id="activeAssignments">0</p>
+        </div>
+      </div>
+    </section>
+    <!-- ... the rest of your main content ... -->
+  </main>
+
+  <!-- ... rest of your HTML ... -->
 </body>
 </html>
