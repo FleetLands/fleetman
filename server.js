@@ -41,9 +41,49 @@ function auth(role) {
   };
 }
 
+// --- USERS ADMIN ---
+app.get("/api/users", auth("admin"), async (req, res) => {
+  const data = await pool.query("SELECT id, username, role, created_at FROM users ORDER BY id");
+  res.json(data.rows);
+});
+
+app.post("/api/users", auth("admin"), async (req, res) => {
+  const { username, password, role } = req.body;
+  if (!username || !password || !role) return res.status(400).json({ error: "All fields required" });
+  const hash = await bcrypt.hash(password, 10);
+  try {
+    await pool.query(
+      "INSERT INTO users (username, password_hash, role, created_at) VALUES ($1, $2, $3, NOW())",
+      [username, hash, role]
+    );
+    res.status(201).json({});
+  } catch (e) {
+    if (e.code === "23505") return res.status(400).json({ error: "Username already exists" });
+    throw e;
+  }
+});
+
+app.delete("/api/users/:id", auth("admin"), async (req, res) => {
+  // Prevent admin deleting themselves
+  if (parseInt(req.params.id) === req.user.id) {
+    return res.status(400).json({ error: "You cannot delete your own account." });
+  }
+  await pool.query("DELETE FROM users WHERE id = $1", [req.params.id]);
+  res.status(200).json({});
+});
+
 // --- CARS ---
 app.get("/api/cars", auth(), async (req, res) => {
-  const data = await pool.query("SELECT * FROM cars WHERE is_active = TRUE ORDER BY id");
+  const search = req.query.q?.trim() || "";
+  let data;
+  if (search) {
+    data = await pool.query(
+      "SELECT * FROM cars WHERE is_active = TRUE AND (license_plate ILIKE $1 OR model ILIKE $1) ORDER BY id",
+      [`%${search}%`]
+    );
+  } else {
+    data = await pool.query("SELECT * FROM cars WHERE is_active = TRUE ORDER BY id");
+  }
   res.json(data.rows);
 });
 app.post("/api/cars", auth("admin"), async (req, res) => {
@@ -61,14 +101,23 @@ app.delete("/api/cars/:id", auth("admin"), async (req, res) => {
 
 // --- DRIVERS ---
 app.get("/api/drivers", auth(), async (req, res) => {
-  const data = await pool.query("SELECT * FROM drivers WHERE is_active = TRUE ORDER BY id");
+  const search = req.query.q?.trim() || "";
+  let data;
+  if (search) {
+    data = await pool.query(
+      "SELECT * FROM drivers WHERE is_active = TRUE AND (name ILIKE $1 OR contact_no ILIKE $1) ORDER BY id",
+      [`%${search}%`]
+    );
+  } else {
+    data = await pool.query("SELECT * FROM drivers WHERE is_active = TRUE ORDER BY id");
+  }
   res.json(data.rows);
 });
 app.post("/api/drivers", auth("admin"), async (req, res) => {
-  const { name } = req.body;
+  const { name, contact_no } = req.body;
   await pool.query(
-    "INSERT INTO drivers (name, is_active, created_at) VALUES ($1, TRUE, NOW())",
-    [name]
+    "INSERT INTO drivers (name, contact_no, is_active, created_at) VALUES ($1, $2, TRUE, NOW())",
+    [name, contact_no]
   );
   res.status(201).json({});
 });
