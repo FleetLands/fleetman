@@ -20,8 +20,14 @@ async function api(path, method = "GET", body = null) {
     } catch {}
     throw new Error(msg);
   }
+  // Only parse JSON if there is content
   if (res.status === 204) return;
-  return res.json();
+  const text = await res.text();
+  try {
+    return text ? JSON.parse(text) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // --- Auth / UI Routing ---
@@ -229,7 +235,7 @@ window.showDriverHistory = async (driver_id, driver_name) => {
   } else {
     $("#historyModalBody").innerHTML = `
       <table class="table table-sm">
-        <thead><tr><th>Car</th><th>Assigned At</th><th>Unassigned At</th></tr></thead>
+        <thead><tr><th>Car</th><th>Assigned At</th><th>Unassigned At</th></thead>
         <tbody>
           ${data.map(a => `<tr>
             <td>${a.license_plate || '-'}</td>
