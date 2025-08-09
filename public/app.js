@@ -36,7 +36,7 @@ function showPage(page) {
     const sec = document.getElementById(id);
     if (sec) sec.style.display = (id === page) ? "block" : "none";
   });
-  document.querySelectorAll("nav button").forEach(btn => btn.classList.remove("active"));
+  document.querySelectorAll("nav button, nav .nav-link").forEach(btn => btn.classList.remove("active"));
   if (page === "dashboardSection") $("#dashboardBtn").classList.add("active");
   if (page === "carsSection") $("#carsBtn").classList.add("active");
   if (page === "driversSection") $("#driversBtn").classList.add("active");
@@ -72,6 +72,7 @@ function showLogin(msg = "") {
       localStorage.setItem("role", role);
       localStorage.setItem("username", username);
       showDashboard();
+      updateNavbarUser();
     } catch (err) {
       $("#loginMsg").textContent = err.message || "Login failed";
       $("#loginMsg").classList.remove("d-none");
@@ -86,6 +87,23 @@ function requireAuth() {
     return false;
   }
   return true;
+}
+
+// --- Navbar User Display ---
+function updateNavbarUser() {
+  if ($("#navbarUser")) {
+    $("#navbarUser").textContent = username ? `${username}  (${role || ""})` : "";
+  }
+  if ($("#logoutBtn")) {
+    $("#logoutBtn").style.display = username ? "" : "none";
+  }
+  if ($("#usersNav")) {
+    if (role === "admin") {
+      $("#usersNav").classList.remove("d-none");
+    } else {
+      $("#usersNav").classList.add("d-none");
+    }
+  }
 }
 
 // --- Dashboard ---
@@ -292,7 +310,7 @@ async function loadAssignments() {
         <td>${a.driver_name || '-'}</td>
         <td>${a.assigned_at ? new Date(a.assigned_at).toLocaleString() : '-'}</td>
         <td>
-          ${role === "admin" ? `<button class="btn btn-danger btn-sm" onclick="unassignAssignment(${a.id})">Unassign</button>` : ""}
+          <button class="btn btn-danger btn-sm" onclick="unassignAssignment(${a.id})">Unassign</button>
         </td>
       </tr>`
     ).join("") : `<tr><td colspan="4" class="text-center text-muted">No current assignments</td></tr>`;
@@ -394,4 +412,5 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#usersBtn") && ($("#usersBtn").onclick = showUsers);
   if (token) showDashboard();
   else showLogin();
+  updateNavbarUser();
 });
