@@ -32,7 +32,7 @@ async function api(path, method = "GET", body = null) {
 
 // --- Auth / UI Routing ---
 function showPage(page) {
-  ["loginPage", "dashboardSection", "carsSection", "driversSection", "assignmentsSection"].forEach(id => {
+  ["loginPage", "dashboardSection", "carsSection", "driversSection", "assignmentsSection", "usersSection"].forEach(id => {
     const sec = document.getElementById(id);
     if (sec) sec.style.display = (id === page) ? "block" : "none";
   });
@@ -41,6 +41,7 @@ function showPage(page) {
   if (page === "carsSection") $("#carsBtn").classList.add("active");
   if (page === "driversSection") $("#driversBtn").classList.add("active");
   if (page === "assignmentsSection") $("#assignmentsBtn").classList.add("active");
+  if (page === "usersSection") $("#usersBtn").classList.add("active");
 }
 
 function logout() {
@@ -105,15 +106,19 @@ async function showDashboard() {
 }
 
 // --- Cars ---
+let carSearchValue = "";
+let carSearchTimeout;
 async function showCars() {
   if (!requireAuth()) return;
   showPage("carsSection");
+  $("#carSearch").value = carSearchValue;
   await loadCars();
 }
 async function loadCars() {
+  const q = $("#carSearch").value.trim();
   const carsTable = $("#carsTable");
   try {
-    const cars = await api("/api/cars");
+    const cars = await api(`/api/cars${q ? `?q=${encodeURIComponent(q)}` : ""}`);
     carsTable.innerHTML = cars.map(c =>
       `<tr>
         <td>${c.license_plate}</td>
@@ -129,6 +134,13 @@ async function loadCars() {
     carsTable.innerHTML = `<tr><td colspan="4">Failed to load cars</td></tr>`;
   }
 }
+$("#carSearch") && ($("#carSearch").oninput = () => {
+  clearTimeout(carSearchTimeout);
+  carSearchTimeout = setTimeout(() => {
+    carSearchValue = $("#carSearch").value;
+    loadCars();
+  }, 200);
+});
 window.deleteCar = async id => {
   if (!confirm("Delete car?")) return;
   try {
@@ -179,18 +191,23 @@ window.showCarHistory = async (car_id, license_plate) => {
 };
 
 // --- Drivers ---
+let driverSearchValue = "";
+let driverSearchTimeout;
 async function showDrivers() {
   if (!requireAuth()) return;
   showPage("driversSection");
+  $("#driverSearch").value = driverSearchValue;
   await loadDrivers();
 }
 async function loadDrivers() {
+  const q = $("#driverSearch").value.trim();
   const driversTable = $("#driversTable");
   try {
-    const drivers = await api("/api/drivers");
+    const drivers = await api(`/api/drivers${q ? `?q=${encodeURIComponent(q)}` : ""}`);
     driversTable.innerHTML = drivers.map(dr =>
       `<tr>
         <td>${dr.name}</td>
+        <td>${dr.contact_no || "-"}</td>
         <td>${new Date(dr.created_at).toLocaleDateString()}</td>
         <td>
           ${role === "admin" ? `<button class="btn btn-danger btn-sm me-1" onclick="deleteDriver(${dr.id})">Delete</button>` : ""}
@@ -199,9 +216,16 @@ async function loadDrivers() {
       </tr>`
     ).join("");
   } catch {
-    driversTable.innerHTML = `<tr><td colspan="3">Failed to load drivers</td></tr>`;
+    driversTable.innerHTML = `<tr><td colspan="4">Failed to load drivers</td></tr>`;
   }
 }
+$("#driverSearch") && ($("#driverSearch").oninput = () => {
+  clearTimeout(driverSearchTimeout);
+  driverSearchTimeout = setTimeout(() => {
+    driverSearchValue = $("#driverSearch").value;
+    loadDrivers();
+  }, 200);
+});
 window.deleteDriver = async id => {
   if (!confirm("Delete driver?")) return;
   try {
@@ -217,7 +241,8 @@ $("#driverForm") && ($("#driverForm").onsubmit = async e => {
   if (role !== "admin") return;
   try {
     await api("/api/drivers", "POST", {
-      name: $("#driverName").value
+      name: $("#driverName").value,
+      contact_no: $("#driverContact").value
     });
     e.target.reset();
     await loadDrivers();
@@ -276,7 +301,6 @@ async function loadAssignments() {
   }
 }
 async function loadAssignmentForm() {
-  // Populate cars and drivers selects
   if (role !== "admin") {
     $("#assignmentForm").style.display = "none";
     return;
@@ -313,6 +337,56 @@ window.unassignAssignment = async id => {
   }
 };
 
+// --- Users (Admin) ---
+async function showUsers() {
+  if (!requireAuth() || role !== "admin") return;
+  showPage("usersSection");
+  await loadUsers();
+}
+async function loadUsers() {
+  const usersTable = $("#usersTable");
+  try {
+    const users = await api("/api/users");
+    usersTable.innerHTML = users.map(u =>
+      `<tr>
+        <td>${u.username}</td>
+        <td>${u.role}</td>
+        <td>${new Date(u.created_at).toLocaleDateString()}</td>
+        <td>
+          ${u.username === username ? `<span class="text-muted">You</span>` :
+            `<button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id})">Delete</button>`
+          }
+        </td>
+      </tr>`
+    ).join("");
+  } catch {
+    usersTable.innerHTML = `<tr><td colspan="4">Failed to load users</td></tr>`;
+  }
+}
+$("#userForm") && ($("#userForm").onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const username = $("#newUserUsername").value.trim();
+    const password = $("#newUserPassword").value;
+    const role = $("#newUserRole").value;
+    if (!username || !password || !role) throw new Error("All fields are required.");
+    await api("/api/users", "POST", { username, password, role });
+    e.target.reset();
+    await loadUsers();
+  } catch (err) {
+    alert(err.message || "Failed to add user");
+  }
+});
+window.deleteUser = async id => {
+  if (!confirm("Delete this user?")) return;
+  try {
+    await api("/api/users/" + id, "DELETE");
+    await loadUsers();
+  } catch (e) {
+    alert(e.message || "Failed to delete user");
+  }
+};
+
 // --- Navigation ---
 document.addEventListener("DOMContentLoaded", () => {
   $("#dashboardBtn").onclick = showDashboard;
@@ -320,6 +394,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#driversBtn").onclick = showDrivers;
   $("#assignmentsBtn").onclick = showAssignments;
   $("#logoutBtn").onclick = logout;
+  $("#usersBtn") && ($("#usersBtn").onclick = showUsers);
   if (token) showDashboard();
   else showLogin();
 });
