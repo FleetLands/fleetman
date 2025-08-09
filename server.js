@@ -141,8 +141,9 @@ app.get("/api/stats", auth(), async (req, res) => {
 });
 
 // --- ASSIGNMENTS ---
+// Now ALL authenticated users (not just admins) can assign/unassign
+
 app.get("/api/assignments", auth(), async (req, res) => {
-  // All active assignments (unassigned_at IS NULL)
   const data = await pool.query(`
     SELECT a.*, c.license_plate, d.name AS driver_name
     FROM assignments a
@@ -154,7 +155,7 @@ app.get("/api/assignments", auth(), async (req, res) => {
   res.json(data.rows);
 });
 
-app.post("/api/assignments", auth("admin"), async (req, res) => {
+app.post("/api/assignments", auth(), async (req, res) => {
   const { car_id, driver_id, assigned_at } = req.body;
   // Unassign any active assignment for this car or driver before assigning
   await pool.query("UPDATE assignments SET unassigned_at = NOW(), unassigned_by = $1 WHERE (car_id = $2 OR driver_id = $3) AND unassigned_at IS NULL", [req.user.id, car_id, driver_id]);
@@ -165,7 +166,7 @@ app.post("/api/assignments", auth("admin"), async (req, res) => {
   res.status(201).json({});
 });
 
-app.patch("/api/assignments/:id/unassign", auth("admin"), async (req, res) => {
+app.patch("/api/assignments/:id/unassign", auth(), async (req, res) => {
   await pool.query("UPDATE assignments SET unassigned_at = NOW(), unassigned_by = $1 WHERE id = $2 AND unassigned_at IS NULL", [req.user.id, req.params.id]);
   res.status(200).json({});
 });
