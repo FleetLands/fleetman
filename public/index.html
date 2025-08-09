@@ -108,30 +108,562 @@
   </style>
 </head>
 <body>
-  <!-- ... everything else is the same ... -->
+  <!-- Auth Container -->
+  <div id="authContainer" class="auth-container">
+    <div class="auth-box" id="loginBox">
+      <h2>Login</h2>
+      <form id="loginForm">
+        <input type="text" id="loginUsername" placeholder="Username" required>
+        <input type="password" id="loginPassword" placeholder="Password" required>
+        <button type="submit">Login</button>
+      </form>
+    </div>
+    <div class="auth-box" id="registerBox" style="display:none;">
+      <h2>Register</h2>
+      <form id="registerForm">
+        <input type="text" id="registerUsername" placeholder="Username" required>
+        <input type="password" id="registerPassword" placeholder="Password" required>
+        <button type="submit">Register</button>
+      </form>
+      <div class="switch-auth">Already have an account? <a onclick="showLogin()">Login</a></div>
+    </div>
+  </div>
 
-  <main>
-    <!-- Dashboard -->
-    <section id="dashboardSection">
-      <h2>Dashboard</h2>
-      <div class="stats">
-        <div class="stat stat-cars">
-          <h3>Total Cars</h3>
-          <p id="totalCars">0</p>
+  <!-- App Container -->
+  <div id="appContainer" style="display:none;">
+    <div class="user-info">
+      <span id="usernameDisplay"></span> (<span id="userRole"></span>)
+      <span class="logout" onclick="logout()">Logout</span>
+    </div>
+    
+    <nav>
+      <button class="active" data-section="dashboard">Dashboard</button>
+      <button data-section="cars">Cars</button>
+      <button data-section="drivers">Drivers</button>
+      <button data-section="assignments">Assignments</button>
+      <button class="admin-only" data-section="users">Users</button>
+    </nav>
+
+    <main>
+      <!-- Dashboard -->
+      <section id="dashboardSection">
+        <h2>Dashboard</h2>
+        <div class="stats">
+          <div class="stat stat-cars"><h3>Total Cars</h3><p id="totalCars">0</p></div>
+          <div class="stat stat-drivers"><h3>Total Drivers</h3><p id="totalDrivers">0</p></div>
+          <div class="stat stat-assignments"><h3>Active Assignments</h3><p id="activeAssignments">0</p></div>
         </div>
-        <div class="stat stat-drivers">
-          <h3>Total Drivers</h3>
-          <p id="totalDrivers">0</p>
+      </section>
+
+      <!-- Cars -->
+      <section id="carsSection" style="display:none;">
+        <h2>Cars</h2>
+        <input type="text" id="carSearch" class="search-input" placeholder="Search by License Plate or Model">
+        <form id="carForm" class="admin-only">
+          <input type="text" id="carLicense" placeholder="License Plate" required>
+          <input type="text" id="carModel" placeholder="Model">
+          <select id="carStatus"><option value="Active" selected>Active</option><option value="Inactive">Inactive</option></select>
+          <button type="submit">Add Car</button>
+        </form>
+        <div class="table-container">
+          <table>
+            <thead><tr><th>License Plate</th><th>Model</th><th>Status</th><th>Assigned Driver</th><th>Actions</th></tr></thead>
+            <tbody id="carsTable"></tbody>
+          </table>
         </div>
-        <div class="stat stat-assignments">
-          <h3>Active Assignments</h3>
-          <p id="activeAssignments">0</p>
+      </section>
+
+      <!-- Drivers -->
+      <section id="driversSection" style="display:none;">
+        <h2>Drivers</h2>
+        <input type="text" id="driverSearch" class="search-input" placeholder="Search by Name or Contact">
+        <form id="driverForm" class="admin-only">
+          <input type="text" id="driverName" placeholder="Name" required>
+          <input type="text" id="driverContact" placeholder="Contact">
+          <button type="submit">Add Driver</button>
+        </form>
+        <div class="table-container">
+          <table>
+            <thead><tr><th>Name</th><th>Contact</th><th>Assigned Car</th><th>Actions</th></tr></thead>
+            <tbody id="driversTable"></tbody>
+          </table>
         </div>
+      </section>
+
+      <!-- Assignments -->
+      <section id="assignmentsSection" style="display:none;">
+        <h2>Assignments</h2>
+        <form id="assignmentForm">
+          <select id="assignCar" required></select>
+          <select id="assignDriver" required></select>
+          <input type="datetime-local" id="assignStart" required>
+          <button type="submit">Assign Car</button>
+        </form>
+        <div class="table-container">
+          <table>
+            <thead><tr><th>Car</th><th>Driver</th><th>Start</th><th>End</th><th>Action</th></tr></thead>
+            <tbody id="assignmentsTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Users (Admin only) -->
+      <section id="usersSection" style="display:none;">
+        <h2>User Management</h2>
+        <form id="userForm" class="admin-only">
+          <input type="text" id="newUsername" placeholder="Username" required>
+          <input type="password" id="newPassword" placeholder="Password" required>
+          <select id="newUserRole">
+            <option value="user">Regular User</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button type="submit">Add User</button>
+        </form>
+        <div class="table-container">
+          <table>
+            <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="usersTable"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <!-- Modal for History -->
+    <div class="modal" id="historyModal">
+      <div class="modal-content">
+        <span class="close-btn" onclick="closeModal()">×</span>
+        <h3 id="historyTitle"></h3>
+        <div id="historyContent"></div>
       </div>
-    </section>
-    <!-- ... the rest of your main content ... -->
-  </main>
+    </div>
+  </div>
 
-  <!-- ... rest of your HTML ... -->
+<script>
+  // Auth state and functions
+  let currentUser = null;
+  let token = localStorage.getItem('token');
+
+  // Show/hide auth forms
+  function showLogin() {
+    document.getElementById('loginBox').style.display = 'block';
+    document.getElementById('registerBox').style.display = 'none';
+  }
+  
+  function showRegister() {
+    document.getElementById('loginBox').style.display = 'none';
+    document.getElementById('registerBox').style.display = 'block';
+  }
+
+  // Login/register handlers
+  document.getElementById('loginForm').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const response = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        body: {
+          username: document.getElementById('loginUsername').value,
+          password: document.getElementById('loginPassword').value
+        }
+      });
+      localStorage.setItem('token', response.token);
+      token = response.token;
+      currentUser = {
+        id: response.id,
+        username: response.username,
+        role: response.role
+      };
+      initApp();
+    } catch (err) {
+      alert(err.error || 'Login failed');
+    }
+  };
+
+  document.getElementById('registerForm').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      await apiFetch('/api/auth/register', {
+        method: 'POST',
+        body: {
+          username: document.getElementById('registerUsername').value,
+          password: document.getElementById('registerPassword').value
+        }
+      });
+      alert('Registration successful! Please login.');
+      showLogin();
+      e.target.reset();
+    } catch (err) {
+      alert(err.error || 'Registration failed');
+    }
+  };
+
+  // User management
+  document.getElementById('userForm').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      await apiFetch('/api/users', {
+        method: 'POST',
+        body: {
+          username: newUsername.value,
+          password: newPassword.value,
+          role: newUserRole.value
+        }
+      });
+      e.target.reset();
+      loadUsers();
+    } catch (err) {
+      alert(err.error || 'Failed to add user');
+    }
+  };
+
+  // Logout
+  function logout() {
+    localStorage.removeItem('token');
+    token = null;
+    currentUser = null;
+    document.getElementById('authContainer').style.display = 'flex';
+    document.getElementById('appContainer').style.display = 'none';
+    showLogin();
+  }
+
+  // Initialize app after login
+  async function initApp() {
+    if (!token) {
+      logout();
+      return;
+    }
+
+    try {
+      // Verify token and get user info
+      let payload;
+      try {
+        payload = JSON.parse(atob(token.split('.')[1]));
+      } catch (e) {
+        logout(); return;
+      }
+      currentUser = {
+        id: payload.id,
+        username: payload.username,
+        role: payload.role
+      };
+
+      document.getElementById('authContainer').style.display = 'none';
+      document.getElementById('appContainer').style.display = 'block';
+      document.getElementById('usernameDisplay').textContent = currentUser.username;
+      document.getElementById('userRole').textContent = currentUser.role;
+
+      // Toggle admin features
+      if (currentUser.role === 'admin') {
+        document.body.classList.add('admin-visible');
+      } else {
+        document.body.classList.remove('admin-visible');
+      }
+
+      // Load initial data
+      refreshDashboard();
+      loadCars();
+      loadDrivers();
+      loadAssignments();
+      loadAssignOptions();
+      if (currentUser.role === 'admin') {
+        loadUsers();
+      }
+    } catch (err) {
+      logout();
+    }
+  }
+
+  // API fetch with auth
+  async function apiFetch(url, opt = {}) {
+    if (opt.body && typeof opt.body !== 'string') {
+      opt.headers = opt.headers || {};
+      opt.headers['Content-Type'] = 'application/json';
+      opt.body = JSON.stringify(opt.body);
+    }
+    if (token) {
+      opt.headers = opt.headers || {};
+      opt.headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await fetch(url, opt);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw error;
+    }
+    return res.json();
+  }
+
+  // Load users (admin only)
+  async function loadUsers() {
+    try {
+      const users = await apiFetch('/api/users');
+      document.getElementById('usersTable').innerHTML = users.map(u => `
+        <tr>
+          <td>${u.username}</td>
+          <td>${u.role}</td>
+          <td>${new Date(u.created_at).toLocaleString()}</td>
+          <td>
+            ${u.id !== currentUser.id ? `<button class="delete-btn" data-id="${u.id}">Delete</button>` : ''}
+          </td>
+        </tr>
+      `).join('');
+      document.querySelectorAll('#usersTable .delete-btn').forEach(b => {
+        b.onclick = async () => {
+          if (confirm('Delete this user?')) {
+            await apiFetch('/api/users/' + b.dataset.id, { method: 'DELETE' });
+            loadUsers();
+          }
+        };
+      });
+    } catch (err) {}
+  }
+
+  // Navigation
+  const sections = {
+    dashboard: document.getElementById('dashboardSection'),
+    cars: document.getElementById('carsSection'),
+    drivers: document.getElementById('driversSection'),
+    assignments: document.getElementById('assignmentsSection'),
+    users: document.getElementById('usersSection')
+  };
+
+  const navButtons = document.querySelectorAll('nav button');
+  navButtons.forEach(btn => btn.addEventListener('click', () => {
+    navButtons.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    for (let key in sections) sections[key].style.display = key === btn.dataset.section ? 'block' : 'none';
+    if (btn.dataset.section === 'users' && currentUser?.role === 'admin') {
+      loadUsers();
+    }
+  }));
+
+  // Dashboard stats
+  async function refreshDashboard() {
+    try {
+      const s = await apiFetch('/api/stats');
+      document.getElementById('totalCars').textContent = s.cars;
+      document.getElementById('totalDrivers').textContent = s.drivers;
+      document.getElementById('activeAssignments').textContent = s.activeAssignments;
+    } catch (err) {}
+  }
+
+  // Cars management
+  const carsTable = document.getElementById('carsTable');
+  const carSearch = document.getElementById('carSearch');
+  async function loadCars(search = '') {
+    try {
+      const cars = await apiFetch('/api/cars?search=' + encodeURIComponent(search));
+      carsTable.innerHTML = cars.map(c => `
+        <tr>
+          <td>${c.license_plate}</td>
+          <td>${c.model}</td>
+          <td>${c.status}</td>
+          <td>${c.driver_name || 'Unassigned'}</td>
+          <td>
+            ${currentUser?.role === 'admin' ? `<button class="delete-btn" data-id="${c.id}">Delete</button>` : ''}
+            <button class="history-btn" onclick="showHistory('car',${c.id},'${c.license_plate}')">History</button>
+          </td>
+        </tr>
+      `).join('');
+      if (currentUser?.role === 'admin') {
+        document.querySelectorAll('#carsTable .delete-btn').forEach(b => {
+          b.onclick = async () => {
+            if (confirm('Delete car?')) {
+              await apiFetch('/api/cars/' + b.dataset.id, { method: 'DELETE' });
+              loadCars(carSearch.value);
+              refreshDashboard();
+            }
+          };
+        });
+      }
+    } catch (err) {}
+  }
+  document.getElementById('carForm').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      await apiFetch('/api/cars', {
+        method: 'POST',
+        body: {
+          license_plate: carLicense.value,
+          model: carModel.value,
+          status: carStatus.value
+        }
+      });
+      e.target.reset();
+      loadCars();
+      refreshDashboard();
+    } catch (err) {
+      alert(err.error || 'Failed to add car');
+    }
+  };
+  carSearch.oninput = () => loadCars(carSearch.value);
+
+  // Drivers management
+  const driversTable = document.getElementById('driversTable');
+  const driverSearch = document.getElementById('driverSearch');
+  async function loadDrivers(search = '') {
+    try {
+      const d = await apiFetch('/api/drivers');
+      const f = d.filter(dr => 
+        dr.name.toLowerCase().includes(search.toLowerCase()) || 
+        (dr.contact || '').toLowerCase().includes(search.toLowerCase())
+      );
+      driversTable.innerHTML = f.map(dr => `
+        <tr>
+          <td>${dr.name}</td>
+          <td>${dr.contact || ''}</td>
+          <td>${dr.car_plate || 'Unassigned'}</td>
+          <td>
+            ${currentUser?.role === 'admin' ? `<button class="delete-btn" data-id="${dr.id}">Delete</button>` : ''}
+            <button class="history-btn" onclick="showHistory('driver',${dr.id},'${dr.name}')">History</button>
+          </td>
+        </tr>
+      `).join('');
+      if (currentUser?.role === 'admin') {
+        document.querySelectorAll('#driversTable .delete-btn').forEach(b => {
+          b.onclick = async () => {
+            if (confirm('Delete driver?')) {
+              await apiFetch('/api/drivers/' + b.dataset.id, { method: 'DELETE' });
+              loadDrivers(driverSearch.value);
+              refreshDashboard();
+            }
+          };
+        });
+      }
+    } catch (err) {}
+  }
+  document.getElementById('driverForm').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      await apiFetch('/api/drivers', {
+        method: 'POST',
+        body: {
+          name: driverName.value,
+          contact: driverContact.value
+        }
+      });
+      e.target.reset();
+      loadDrivers();
+      refreshDashboard();
+    } catch (err) {
+      alert(err.error || 'Failed to add driver');
+    }
+  };
+  driverSearch.oninput = () => loadDrivers(driverSearch.value);
+
+  // Assignments management
+  const assignmentsTable = document.getElementById('assignmentsTable');
+  async function loadAssignments() {
+    try {
+      const a = await apiFetch('/api/assignments');
+      assignmentsTable.innerHTML = a.map(as => `
+        <tr>
+          <td>${as.license_plate}</td>
+          <td>${as.name}</td>
+          <td>${new Date(as.start_time).toLocaleString()}</td>
+          <td>${as.end_time ? new Date(as.end_time).toLocaleString() : '<em>Active</em>'}</td>
+          <td>${!as.end_time ? `<button class="end-btn" data-id="${as.id}">End</button>` : ''}</td>
+        </tr>
+      `).join('');
+      document.querySelectorAll('.end-btn').forEach(b => {
+        b.onclick = async () => {
+          try {
+            await apiFetch('/api/assignments/' + b.dataset.id, {
+              method: 'PUT',
+              body: { end_time: new Date().toISOString() }
+            });
+            loadAssignments();
+            loadCars(carSearch.value);
+            loadDrivers(driverSearch.value);
+            refreshDashboard();
+            loadAssignOptions();
+          } catch (err) {}
+        };
+      });
+    } catch (err) {}
+  }
+  async function loadAssignOptions() {
+    try {
+      const cars = await apiFetch('/api/cars');
+      const drivers = await apiFetch('/api/drivers');
+      assignCar.innerHTML = cars
+        .filter(c => !c.driver_name)
+        .map(c => `<option value="${c.id}">${c.license_plate} (${c.model})</option>`)
+        .join('');
+      assignDriver.innerHTML = drivers
+        .filter(d => !d.car_plate)
+        .map(d => `<option value="${d.id}">${d.name}</option>`)
+        .join('');
+    } catch (err) {}
+  }
+  document.getElementById('assignmentForm').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      await apiFetch('/api/assignments', {
+        method: 'POST',
+        body: {
+          car_id: assignCar.value,
+          driver_id: assignDriver.value,
+          start_time: assignStart.value
+        }
+      });
+      e.target.reset();
+      loadAssignments();
+      loadCars();
+      loadDrivers();
+      refreshDashboard();
+      loadAssignOptions();
+    } catch (err) {
+      alert(err.error || 'Failed to create assignment');
+    }
+  };
+
+  // History modal
+  const modal = document.getElementById('historyModal');
+  const modalTitle = document.getElementById('historyTitle');
+  const modalContent = document.getElementById('historyContent');
+  function closeModal() {
+    modal.style.display = 'none';
+  }
+  async function showHistory(type, id, name) {
+    try {
+      const data = await apiFetch('/api/assignments');
+      let rows;
+      if (type === 'car') {
+        rows = data.filter(a => a.car_id === id);
+      } else {
+        rows = data.filter(a => a.driver_id === id);
+      }
+      modalTitle.textContent = (type === 'car' ? 'Car ' : 'Driver ') + `History for ${name}`;
+      modalContent.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;">
+          <tr>
+            <th>${type === 'car' ? 'Driver' : 'Car'}</th>
+            <th>Start</th>
+            <th>End</th>
+          </tr>
+          ${rows.map(r => `
+            <tr>
+              <td>${type === 'car' ? r.name : r.license_plate}</td>
+              <td>${new Date(r.start_time).toLocaleString()}</td>
+              <td>${r.end_time ? new Date(r.end_time).toLocaleString() : 'Active'}</td>
+            </tr>
+          `).join('')}
+        </table>
+      `;
+      modal.style.display = 'flex';
+    } catch (err) {}
+  }
+  window.onclick = e => {
+    if (e.target === modal) closeModal();
+  };
+
+  // On page load: show login or app
+  if (token) {
+    initApp();
+  } else {
+    showLogin();
+    document.getElementById('authContainer').style.display = 'flex';
+    document.getElementById('appContainer').style.display = 'none';
+  }
+</script>
 </body>
 </html>
