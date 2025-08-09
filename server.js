@@ -6,6 +6,8 @@ import { fileURLToPath } from "url";
 import pkg from "pg";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
 
 dotenv.config();
 
@@ -42,14 +44,108 @@ pool.connect()
 const app = express();
 
 // Security middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+  crossOriginEmbedderPolicy: false
+}));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' ? process.env.ALLOWED_ORIGINS?.split(',') : true,
   credentials: true
 }));
 
+// Input validation helpers
+function validateEmail(email) {
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(email);
+}
+
+function validatePhoneNumber(phone) {
+  // Basic phone validation - allows digits, spaces, dashes, parentheses, and plus sign
+  const re = /^[\+]?[\d\s\-\(\)]+$/;
+  return phone ? re.test(phone) : true; // Optional field
+}
+
+function validateLicensePlate(plate) {
+  // Basic license plate validation - alphanumeric with optional dashes and spaces
+  const re = /^[A-Za-z0-9\s\-]+$/;
+  return re.test(plate);
+}
+
+// Request validation middleware
+function validateRequest(schema) {
+  return (req, res, next) => {
+    try {
+      for (const [field, validator] of Object.entries(schema)) {
+        const value = req.body[field];
+        
+        if (validator.required && (!value || value.toString().trim() === '')) {
+          return res.status(400).json({ message: `${field} is required` });
+        }
+        
+        if (value && validator.type) {
+          if (validator.type === 'string' && typeof value !== 'string') {
+            return res.status(400).json({ message: `${field} must be a string` });
+          }
+          if (validator.type === 'number' && isNaN(Number(value))) {
+            return res.status(400).json({ message: `${field} must be a number` });
+          }
+        }
+        
+        if (value && validator.minLength && value.toString().length < validator.minLength) {
+          return res.status(400).json({ message: `${field} must be at least ${validator.minLength} characters` });
+        }
+        
+        if (value && validator.maxLength && value.toString().length > validator.maxLength) {
+          return res.status(400).json({ message: `${field} must be no more than ${validator.maxLength} characters` });
+        }
+        
+        if (value && validator.pattern && !validator.pattern.test(value)) {
+          return res.status(400).json({ message: validator.message || `${field} format is invalid` });
+        }
+        
+        if (value && validator.custom && !validator.custom(value)) {
+          return res.status(400).json({ message: validator.message || `${field} is invalid` });
+        }
+      }
+      next();
+    } catch (error) {
+      console.error("Validation error:", error);
+      res.status(500).json({ message: "Validation failed" });
+    }
+  };
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.static(path.join(__dirname, "public")));
+
+// Rate limiting
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 requests per windowMs
+  message: { message: "Too many authentication attempts, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: { message: "Too many requests, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply general rate limiting to all API routes
+app.use('/api', generalLimiter);
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {
@@ -92,13 +188,13 @@ function auth(requiredRole = null) {
 }
 
 // --- AUTH ---
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", authLimiter, validateRequest({
+  username: { required: true, type: 'string', minLength: 1, maxLength: 50 },
+  password: { required: true, type: 'string', minLength: 1 }
+}), async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ message: "Username and password required" });
-    }
-    const result = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
+    const result = await pool.query("SELECT * FROM users WHERE username = $1", [username.trim()]);
     if (result.rows.length === 0) return res.status(401).json({ message: "Invalid user/pass" });
     const user = result.rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
@@ -112,24 +208,28 @@ app.post("/api/auth/login", async (req, res) => {
 });
 
 // Registration endpoint
-app.post("/api/auth/register", async (req, res) => {
+app.post("/api/auth/register", authLimiter, validateRequest({
+  username: { 
+    required: true, 
+    type: 'string', 
+    minLength: 3, 
+    maxLength: 50,
+    pattern: /^[a-zA-Z0-9_]+$/,
+    message: "Username can only contain letters, numbers, and underscores"
+  },
+  password: { required: true, type: 'string', minLength: 3, maxLength: 100 }
+}), async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ message: "Username and password required" });
-    }
-    if (password.length < 3) {
-      return res.status(400).json({ message: "Password must be at least 3 characters" });
-    }
     
     // Check if user already exists
-    const existing = await pool.query("SELECT id FROM users WHERE username = $1", [username]);
+    const existing = await pool.query("SELECT id FROM users WHERE username = $1", [username.trim()]);
     if (existing.rows.length > 0) {
       return res.status(409).json({ message: "Username already exists" });
     }
     
     const hash = await bcrypt.hash(password, 10);
-    await pool.query("INSERT INTO users (username, password_hash, role) VALUES ($1, $2, 'user')", [username, hash]);
+    await pool.query("INSERT INTO users (username, password_hash, role) VALUES ($1, $2, 'user')", [username.trim(), hash]);
     res.status(201).json({ message: "User created successfully" });
   } catch (error) {
     console.error("Registration error:", error);
@@ -166,24 +266,34 @@ app.get("/api/users", auth("admin"), async (req, res) => {
   }
 });
 
-app.post("/api/users", auth("admin"), async (req, res) => {
+app.post("/api/users", auth("admin"), validateRequest({
+  username: { 
+    required: true, 
+    type: 'string', 
+    minLength: 3, 
+    maxLength: 50,
+    pattern: /^[a-zA-Z0-9_]+$/,
+    message: "Username can only contain letters, numbers, and underscores"
+  },
+  password: { required: true, type: 'string', minLength: 3, maxLength: 100 },
+  role: { 
+    required: true, 
+    type: 'string',
+    custom: (value) => ['admin', 'user'].includes(value),
+    message: "Role must be 'admin' or 'user'"
+  }
+}), async (req, res) => {
   try {
     const { username, password, role } = req.body;
-    if (!username || !password || !role) {
-      return res.status(400).json({ message: "All fields required" });
-    }
-    if (!['admin', 'user'].includes(role)) {
-      return res.status(400).json({ message: "Role must be 'admin' or 'user'" });
-    }
     
     // Check if user already exists
-    const existing = await pool.query("SELECT id FROM users WHERE username = $1", [username]);
+    const existing = await pool.query("SELECT id FROM users WHERE username = $1", [username.trim()]);
     if (existing.rows.length > 0) {
       return res.status(409).json({ message: "Username already exists" });
     }
     
     const hash = await bcrypt.hash(password, 10);
-    await pool.query("INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)", [username, hash, role]);
+    await pool.query("INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)", [username.trim(), hash, role]);
     res.sendStatus(201);
   } catch (error) {
     console.error("User creation error:", error);
@@ -227,13 +337,20 @@ app.get("/api/cars", auth(), async (req, res) => {
   }
 });
 
-app.post("/api/cars", auth("admin"), async (req, res) => {
+app.post("/api/cars", auth("admin"), validateRequest({
+  license_plate: { 
+    required: true, 
+    type: 'string', 
+    minLength: 1, 
+    maxLength: 20,
+    custom: validateLicensePlate,
+    message: "License plate can only contain letters, numbers, spaces, and dashes"
+  },
+  model: { required: true, type: 'string', minLength: 1, maxLength: 50 }
+}), async (req, res) => {
   try {
     const { license_plate, model } = req.body;
-    if (!license_plate || !model) {
-      return res.status(400).json({ message: "License plate and model are required" });
-    }
-    await pool.query("INSERT INTO cars (license_plate, model) VALUES ($1, $2)", [license_plate, model]);
+    await pool.query("INSERT INTO cars (license_plate, model) VALUES ($1, $2)", [license_plate.trim().toUpperCase(), model.trim()]);
     res.sendStatus(201);
   } catch (error) {
     console.error("Car creation error:", error);
@@ -275,13 +392,19 @@ app.get("/api/drivers", auth(), async (req, res) => {
   }
 });
 
-app.post("/api/drivers", auth("admin"), async (req, res) => {
+app.post("/api/drivers", auth("admin"), validateRequest({
+  name: { required: true, type: 'string', minLength: 1, maxLength: 100 },
+  phone: { 
+    required: false, 
+    type: 'string', 
+    maxLength: 20,
+    custom: validatePhoneNumber,
+    message: "Phone number format is invalid"
+  }
+}), async (req, res) => {
   try {
     const { name, phone } = req.body;
-    if (!name) {
-      return res.status(400).json({ message: "Name is required" });
-    }
-    await pool.query("INSERT INTO drivers (name, phone) VALUES ($1, $2)", [name, phone || null]);
+    await pool.query("INSERT INTO drivers (name, phone) VALUES ($1, $2)", [name.trim(), phone?.trim() || null]);
     res.sendStatus(201);
   } catch (error) {
     console.error("Driver creation error:", error);
@@ -328,33 +451,55 @@ app.get("/api/assignments", auth(), async (req, res) => {
 });
 
 // Assign car to driver
-app.post("/api/assignments", auth(), async (req, res) => {
+app.post("/api/assignments", auth(), validateRequest({
+  car_id: { required: true, type: 'number' },
+  driver_id: { required: true, type: 'number' },
+  assigned_at: { required: false, type: 'string' },
+  start_time: { required: false, type: 'string' }
+}), async (req, res) => {
   try {
     const { car_id, driver_id, assigned_at, start_time } = req.body;
     const assignedTime = assigned_at || start_time || new Date();
+
+    // Verify car and driver exist and are active
+    const carCheck = await pool.query("SELECT id FROM cars WHERE id = $1 AND is_active = TRUE", [car_id]);
+    if (carCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Car not found or inactive" });
+    }
     
-    if (!car_id || !driver_id) {
-      return res.status(400).json({ message: "Car ID and driver ID are required" });
+    const driverCheck = await pool.query("SELECT id FROM drivers WHERE id = $1 AND is_active = TRUE", [driver_id]);
+    if (driverCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Driver not found or inactive" });
     }
 
-    // End previous assignment for this car (if any)
-    await pool.query(
-      "UPDATE assignments SET unassigned_at = NOW(), unassigned_by = $1 WHERE car_id = $2 AND unassigned_at IS NULL",
-      [req.user.id, car_id]
-    );
+    // Begin transaction
+    await pool.query('BEGIN');
     
-    // End previous assignment for this driver (if any)
-    await pool.query(
-      "UPDATE assignments SET unassigned_at = NOW(), unassigned_by = $1 WHERE driver_id = $2 AND unassigned_at IS NULL",
-      [req.user.id, driver_id]
-    );
-    
-    // New assignment
-    await pool.query(
-      "INSERT INTO assignments (car_id, driver_id, assigned_by, assigned_at) VALUES ($1, $2, $3, $4)",
-      [car_id, driver_id, req.user.id, assignedTime]
-    );
-    res.sendStatus(201);
+    try {
+      // End previous assignment for this car (if any)
+      await pool.query(
+        "UPDATE assignments SET unassigned_at = NOW(), unassigned_by = $1 WHERE car_id = $2 AND unassigned_at IS NULL",
+        [req.user.id, car_id]
+      );
+      
+      // End previous assignment for this driver (if any)
+      await pool.query(
+        "UPDATE assignments SET unassigned_at = NOW(), unassigned_by = $1 WHERE driver_id = $2 AND unassigned_at IS NULL",
+        [req.user.id, driver_id]
+      );
+      
+      // New assignment
+      await pool.query(
+        "INSERT INTO assignments (car_id, driver_id, assigned_by, assigned_at) VALUES ($1, $2, $3, $4)",
+        [car_id, driver_id, req.user.id, assignedTime]
+      );
+      
+      await pool.query('COMMIT');
+      res.sendStatus(201);
+    } catch (error) {
+      await pool.query('ROLLBACK');
+      throw error;
+    }
   } catch (error) {
     console.error("Assignment creation error:", error);
     res.status(500).json({ message: "Failed to create assignment" });
