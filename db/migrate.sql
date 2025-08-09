@@ -1,33 +1,30 @@
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(10) NOT NULL CHECK (role IN ('admin', 'user')),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- Users
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL
 );
 
-CREATE TABLE cars (
-    id SERIAL PRIMARY KEY,
-    license_plate VARCHAR(20) UNIQUE NOT NULL,
-    model VARCHAR(50) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE
+-- Drivers
+CREATE TABLE IF NOT EXISTS drivers (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  license_no TEXT NOT NULL UNIQUE
 );
 
-CREATE TABLE drivers (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    phone VARCHAR(20),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE
+-- Cars
+CREATE TABLE IF NOT EXISTS cars (
+  id SERIAL PRIMARY KEY,
+  license_plate TEXT NOT NULL UNIQUE,
+  model TEXT NOT NULL,
+  status TEXT DEFAULT 'active'
 );
 
-CREATE TABLE assignments (
-    id SERIAL PRIMARY KEY,
-    car_id INTEGER REFERENCES cars(id),
-    driver_id INTEGER REFERENCES drivers(id),
-    assigned_by INTEGER REFERENCES users(id),
-    assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    unassigned_at TIMESTAMP,
-    unassigned_by INTEGER REFERENCES users(id)
+-- Assignments
+CREATE TABLE IF NOT EXISTS assignments (
+  id SERIAL PRIMARY KEY,
+  car_id INTEGER REFERENCES cars(id) ON DELETE CASCADE,
+  driver_id INTEGER REFERENCES drivers(id) ON DELETE CASCADE,
+  assign_time TIMESTAMP NOT NULL
 );

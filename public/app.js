@@ -1,310 +1,204 @@
-const $ = s => document.querySelector(s);
-const api = (url, method = "GET", body = null, token = null) =>
-  fetch(url, {
+const $ = (sel) => document.querySelector(sel);
+let token = localStorage.getItem("token") || "";
+let role = localStorage.getItem("role") || "";
+let username = localStorage.getItem("username") || "";
+
+// --- API Helper ---
+async function api(path, method = "GET", body = null) {
+  const opts = {
     method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: "Bearer " + token }),
-    },
-    ...(body && { body: JSON.stringify(body) }),
-  }).then(async r => {
-    // Try to parse JSON, but support empty responses
-    const text = await r.text();
-    let data;
-    try { data = text ? JSON.parse(text) : {}; } catch { data = {}; }
-    if (!r.ok) throw data;
-    return data;
-  });
-
-let token = localStorage.getItem("token");
-let role = localStorage.getItem("role");
-
-function renderLogin() {
-  $("#app").innerHTML = `
-    <div class="card">
-      <h2>Login</h2>
-      <input id="username" placeholder="Username" />
-      <input id="password" placeholder="Password" type="password" />
-      <button id="loginBtn">Login</button>
-      <div id="loginError" style="color:red;"></div>
-    </div>
-  `;
-  $("#loginBtn").onclick = async () => {
-    const username = $("#username").value, password = $("#password").value;
-    try {
-      const res = await api("/api/auth/login", "POST", { username, password });
-      if (res.token) {
-        localStorage.setItem("token", res.token);
-        localStorage.setItem("role", res.role);
-        token = res.token; role = res.role;
-        renderApp();
-      } else {
-        $("#loginError").textContent = res.message || "Login failed";
-      }
-    } catch (err) {
-      $("#loginError").textContent = err.message || "Login failed";
-    }
+    headers: { "Content-Type": "application/json" }
   };
+  if (token) opts.headers["Authorization"] = "Bearer " + token;
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let msg = "Unknown error";
+    try {
+      const err = await res.json();
+      msg = err.error || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+  if (res.status === 204) return;
+  return res.json();
+}
+
+// --- Auth / UI Routing ---
+function showPage(page) {
+  ["loginPage", "dashboardSection", "carsSection", "driversSection"].forEach(id => {
+    const sec = document.getElementById(id);
+    if (sec) sec.style.display = (id === page) ? "block" : "none";
+  });
+  document.querySelectorAll("nav button").forEach(btn => btn.classList.remove("active"));
+  if (page === "dashboardSection") $("#dashboardBtn").classList.add("active");
+  if (page === "carsSection") $("#carsBtn").classList.add("active");
+  if (page === "driversSection") $("#driversBtn").classList.add("active");
 }
 
 function logout() {
+  token = "";
+  role = "";
+  username = "";
   localStorage.clear();
-  token = role = null;
-  renderLogin();
+  showLogin();
 }
 
-async function renderApp() {
-  if (!token) return renderLogin();
-  $("#app").innerHTML = `
-    <button onclick="logout()" style="float:right">Logout</button>
-    <h1>Fleet Management</h1>
-    <div id="mainMenu"></div>
-    <div id="dashboard"></div>
-    <div id="content"></div>
-  `;
-  const menu = [];
-  if (role === "admin") menu.push(`<button data-section="users">Users</button>`);
-  menu.push(
-    `<button data-section="cars">Cars</button>`,
-    `<button data-section="drivers">Drivers</button>`,
-    `<button data-section="assignments">Assignments</button>`
-  );
-  $("#mainMenu").innerHTML = menu.join(" ");
-  // Section click events and section memory
-  $("#mainMenu").querySelectorAll("button[data-section]").forEach(btn => {
-    btn.onclick = () => {
-      localStorage.setItem("lastSection", btn.dataset.section);
-      showSection(btn.dataset.section);
-    };
-  });
-  // Show last visited section or dashboard
-  let last = localStorage.getItem("lastSection") || "dashboard";
-  if (last === "dashboard") {
-    renderDashboard();
-    // highlight nothing in menu
-  } else {
-    showSection(last);
-    // highlight active in menu
-    $("#mainMenu").querySelectorAll("button[data-section]").forEach(btn =>
-      btn.classList.toggle("active", btn.dataset.section === last));
+// --- Login ---
+function showLogin(msg = "") {
+  showPage("loginPage");
+  $("#loginMsg").textContent = msg;
+  $("#loginForm").onsubmit = async e => {
+    e.preventDefault();
+    $("#loginBtn").disabled = true;
+    try {
+      const data = await api("/api/login", "POST", {
+        username: $("#loginUser").value.trim(),
+        password: $("#loginPass").value
+      });
+      token = data.token;
+      role = data.role;
+      username = data.username;
+      localStorage.setItem("token", token);
+      localStorage.setItem("role", role);
+      localStorage.setItem("username", username);
+      showDashboard();
+    } catch (err) {
+      $("#loginMsg").textContent = err.message || "Login failed";
+    }
+    $("#loginBtn").disabled = false;
+  };
+}
+
+function requireAuth() {
+  if (!token) {
+    showLogin();
+    return false;
   }
+  return true;
 }
 
-function showSection(section) {
-  // highlight active menu
-  $("#mainMenu").querySelectorAll("button[data-section]").forEach(btn =>
-    btn.classList.toggle("active", btn.dataset.section === section));
-  // hide dashboard if not selected
-  if (section !== "dashboard") $("#dashboard").innerHTML = "";
-  // show the section
-  if (section === "users") renderUsers();
-  else if (section === "cars") renderCars();
-  else if (section === "drivers") renderDrivers();
-  else if (section === "assignments") renderAssignments();
-  else renderDashboard();
-}
-
-async function renderDashboard() {
-  // Try to fetch stats
-  $("#dashboard").innerHTML = "<h2>Dashboard</h2><div>Loading...</div>";
+// --- Dashboard ---
+async function showDashboard() {
+  if (!requireAuth()) return;
+  showPage("dashboardSection");
+  $("#welcomeUser").textContent = username ? `Welcome, ${username}!` : "";
   try {
-    const stats = await api("/api/stats", "GET", null, token);
-    $("#dashboard").innerHTML = `
-      <div class="stats">
-        <div class="stat stat-cars"><h3>Total Cars</h3><p>${stats.cars || 0}</p></div>
-        <div class="stat stat-drivers"><h3>Total Drivers</h3><p>${stats.drivers || 0}</p></div>
-        <div class="stat stat-assignments"><h3>Active Assignments</h3><p>${stats.activeAssignments || 0}</p></div>
-      </div>
-    `;
+    const stats = await api("/api/stats");
+    $("#totalCars").textContent = stats.cars || 0;
+    $("#totalDrivers").textContent = stats.drivers || 0;
+    $("#activeAssignments").textContent = stats.activeAssignments || 0;
   } catch {
-    $("#dashboard").innerHTML = "<div style='color:red'>Failed to load dashboard stats.</div>";
-  }
-  // Set as current section in memory
-  localStorage.setItem("lastSection", "dashboard");
-}
-
-async function renderUsers() {
-  $("#content").innerHTML = "<h2>Users</h2><div id='usersList'></div><div id='userForm'></div>";
-  try {
-    const users = await api("/api/users", "GET", null, token);
-    $("#usersList").innerHTML = users.map(u =>
-      `<div>${u.username} (${u.role})${u.role !== "admin" ? ` <button onclick="deleteUser(${u.id})">Delete</button>` : ""}</div>`
-    ).join("");
-  } catch (e) {
-    $("#usersList").innerHTML = "<div style='color:red'>Failed to load users.</div>";
-  }
-  $("#userForm").innerHTML = `
-    <h3>Add User</h3>
-    <input id="newUser" placeholder="Username" />
-    <input id="newPass" placeholder="Password" type="password" />
-    <select id="newRole"><option value="user">User</option><option value="admin">Admin</option></select>
-    <button id="addUserBtn">Add</button>
-    <div id="userMsg"></div>
-  `;
-  $("#addUserBtn").onclick = addUser;
-}
-window.deleteUser = async id => {
-  try {
-    await api("/api/users/" + id, "DELETE", null, token);
-    renderUsers();
-    renderDashboard();
-  } catch (e) {
-    alert(e.message || "Failed to delete user");
-  }
-};
-async function addUser() {
-  const username = $("#newUser").value,
-        password = $("#newPass").value,
-        roleval = $("#newRole").value;
-  if (!username || !password) return $("#userMsg").textContent = "Fields required";
-  try {
-    await api("/api/users", "POST", { username, password, role: roleval }, token);
-    $("#userMsg").textContent = "";
-    renderUsers();
-    renderDashboard();
-  } catch (e) {
-    $("#userMsg").textContent = e.message || "Failed to add user";
+    $("#totalCars").textContent = "0";
+    $("#totalDrivers").textContent = "0";
+    $("#activeAssignments").textContent = "0";
   }
 }
 
-async function renderCars() {
-  $("#content").innerHTML = "<h2>Cars</h2><div id='carsList'></div>" + (role === "admin" ? `
-    <div>
-      <input id="carPlate" placeholder="License Plate" />
-      <input id="carModel" placeholder="Model" />
-      <button id="addCarBtn">Add Car</button>
-      <span id="carMsg" style="color:red"></span>
-    </div>` : "");
-  try {
-    const cars = await api("/api/cars", "GET", null, token);
-    $("#carsList").innerHTML = cars.map(c =>
-      `<div>${c.license_plate} (${c.model})${role === "admin" ? ` <button onclick="deleteCar(${c.id})">Delete</button>` : ""}</div>`
-    ).join("");
-  } catch (e) {
-    $("#carsList").innerHTML = "<div style='color:red'>Failed to load cars.</div>";
-  }
-  if (role === "admin") $("#addCarBtn").onclick = addCar;
+// --- Cars ---
+async function showCars() {
+  if (!requireAuth()) return;
+  showPage("carsSection");
+  await loadCars();
 }
-async function addCar() {
-  $("#carMsg").textContent = "";
+async function loadCars() {
+  const carsTable = $("#carsTable");
   try {
-    await api("/api/cars", "POST", { license_plate: $("#carPlate").value, model: $("#carModel").value }, token);
-    renderCars();
-    renderDashboard();
-  } catch (e) {
-    $("#carMsg").textContent = e.message || "Failed to add car";
+    const cars = await api("/api/cars");
+    carsTable.innerHTML = cars.map(c =>
+      `<tr>
+        <td>${c.license_plate}</td>
+        <td>${c.model}</td>
+        <td>${new Date(c.created_at).toLocaleDateString()}</td>
+        <td>${role === "admin"
+            ? `<button class="delete-btn" onclick="deleteCar(${c.id})">Delete</button>`
+            : ""}</td>
+      </tr>`
+    ).join("");
+  } catch {
+    carsTable.innerHTML = `<tr><td colspan="4">Failed to load cars</td></tr>`;
   }
 }
 window.deleteCar = async id => {
+  if (!confirm("Delete car?")) return;
   try {
-    await api("/api/cars/" + id, "DELETE", null, token);
-    renderCars();
-    renderDashboard();
+    await api("/api/cars/" + id, "DELETE");
+    await loadCars();
+    await showDashboard();
   } catch (e) {
     alert(e.message || "Failed to delete car");
   }
 };
-
-async function renderDrivers() {
-  $("#content").innerHTML = "<h2>Drivers</h2><div id='driversList'></div>" + (role === "admin" ? `
-    <div>
-      <input id="driverName" placeholder="Name" />
-      <input id="driverPhone" placeholder="Phone" />
-      <button id="addDriverBtn">Add Driver</button>
-      <span id="driverMsg" style="color:red"></span>
-    </div>` : "");
+$("#carForm") && ($("#carForm").onsubmit = async e => {
+  e.preventDefault();
+  if (role !== "admin") return;
   try {
-    const drivers = await api("/api/drivers", "GET", null, token);
-    $("#driversList").innerHTML = drivers.map(d =>
-      `<div>${d.name} (${d.phone || ""})${role === "admin" ? ` <button onclick="deleteDriver(${d.id})">Delete</button>` : ""}</div>`
-    ).join("");
-  } catch (e) {
-    $("#driversList").innerHTML = "<div style='color:red'>Failed to load drivers.</div>";
+    await api("/api/cars", "POST", {
+      license_plate: $("#carLicense").value,
+      model: $("#carModel").value
+    });
+    e.target.reset();
+    await loadCars();
+    await showDashboard();
+  } catch (err) {
+    alert(err.message || "Failed to add car");
   }
-  if (role === "admin") $("#addDriverBtn").onclick = addDriver;
+});
+
+// --- Drivers ---
+async function showDrivers() {
+  if (!requireAuth()) return;
+  showPage("driversSection");
+  await loadDrivers();
 }
-async function addDriver() {
-  $("#driverMsg").textContent = "";
+async function loadDrivers() {
+  const driversTable = $("#driversTable");
   try {
-    await api("/api/drivers", "POST", { name: $("#driverName").value, phone: $("#driverPhone").value }, token);
-    renderDrivers();
-    renderDashboard();
-  } catch (e) {
-    $("#driverMsg").textContent = e.message || "Failed to add driver";
+    const drivers = await api("/api/drivers");
+    driversTable.innerHTML = drivers.map(dr =>
+      `<tr>
+        <td>${dr.name}</td>
+        <td>${new Date(dr.created_at).toLocaleDateString()}</td>
+        <td>${role === "admin"
+            ? `<button class="delete-btn" onclick="deleteDriver(${dr.id})">Delete</button>`
+            : ""}</td>
+      </tr>`
+    ).join("");
+  } catch {
+    driversTable.innerHTML = `<tr><td colspan="3">Failed to load drivers</td></tr>`;
   }
 }
 window.deleteDriver = async id => {
+  if (!confirm("Delete driver?")) return;
   try {
-    await api("/api/drivers/" + id, "DELETE", null, token);
-    renderDrivers();
-    renderDashboard();
+    await api("/api/drivers/" + id, "DELETE");
+    await loadDrivers();
+    await showDashboard();
   } catch (e) {
     alert(e.message || "Failed to delete driver");
   }
 };
+$("#driverForm") && ($("#driverForm").onsubmit = async e => {
+  e.preventDefault();
+  if (role !== "admin") return;
+  try {
+    await api("/api/drivers", "POST", {
+      name: $("#driverName").value
+    });
+    e.target.reset();
+    await loadDrivers();
+    await showDashboard();
+  } catch (err) {
+    alert(err.message || "Failed to add driver");
+  }
+});
 
-async function renderAssignments() {
-  $("#content").innerHTML = `<h2>Assignments</h2>
-    <div id='assignForm'></div>
-    <div id='assignmentsList'></div>`;
-  let cars = [], drivers = [], assignments = [];
-  try {
-    [cars, drivers, assignments] = await Promise.all([
-      api("/api/cars", "GET", null, token),
-      api("/api/drivers", "GET", null, token),
-      api("/api/assignments", "GET", null, token)
-    ]);
-  } catch (e) {
-    $("#assignmentsList").innerHTML = "<div style='color:red'>Failed to load assignments.</div>";
-    return;
-  }
-  $("#assignForm").innerHTML = `
-    <select id="assignCar">${cars.filter(c => !assignments.some(a => a.car_id === c.id && !a.unassigned_at)).map(c => `<option value="${c.id}">${c.license_plate}</option>`)}</select>
-    <select id="assignDriver">${drivers.filter(d => !assignments.some(a => a.driver_id === d.id && !a.unassigned_at)).map(d => `<option value="${d.id}">${d.name}</option>`)}</select>
-    <input id="assignTime" type="datetime-local" />
-    <button id="assignCarBtn">Assign</button>
-    <span id="assignMsg" style="color:red"></span>
-  `;
-  $("#assignCarBtn").onclick = assignCar;
-  $("#assignmentsList").innerHTML = assignments.map(a =>
-    `<div>
-      ${a.license_plate || ""} → ${a.driver_name || ""}
-      | Assigned: ${a.assigned_at ? new Date(a.assigned_at).toLocaleString() : ""}
-      | Unassigned: ${a.unassigned_at ? new Date(a.unassigned_at).toLocaleString() : ""}
-      ${!a.unassigned_at ? `<button onclick="unassignCar(${a.car_id})">Unassign Now</button>` : ""}
-    </div>`
-  ).join("");
-}
-async function assignCar() {
-  $("#assignMsg").textContent = "";
-  const car_id = $("#assignCar").value,
-        driver_id = $("#assignDriver").value,
-        assignTime = $("#assignTime").value;
-  if (!car_id || !driver_id || !assignTime) {
-    $("#assignMsg").textContent = "All fields required";
-    return;
-  }
-  try {
-    await api("/api/assignments", "POST", {
-      car_id,
-      driver_id,
-      assigned_at: new Date(assignTime).toISOString()
-    }, token);
-    renderAssignments();
-    renderDashboard();
-  } catch (e) {
-    $("#assignMsg").textContent = e.message || "Failed to assign car";
-  }
-}
-window.unassignCar = async (car_id) => {
-  try {
-    await api("/api/assignments/unassign", "POST", { car_id, unassigned_at: new Date().toISOString() }, token);
-    renderAssignments();
-    renderDashboard();
-  } catch (e) {
-    alert(e.message || "Failed to unassign car");
-  }
-};
-
-// On load: render login or app
-if (token) renderApp(); else renderLogin();
+// --- Navigation ---
+document.addEventListener("DOMContentLoaded", () => {
+  $("#dashboardBtn").onclick = showDashboard;
+  $("#carsBtn").onclick = showCars;
+  $("#driversBtn").onclick = showDrivers;
+  $("#logoutBtn").onclick = logout;
+  if (token) showDashboard();
+  else showLogin();
+});
